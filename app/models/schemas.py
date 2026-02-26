@@ -115,6 +115,14 @@ class RecentTrade(BaseModel):
     trade_type: str = "매매"
 
 
+class MonthlyTrend(BaseModel):
+    month: str = Field("", description="YYYY-MM")
+    avg_trade: float | None = None
+    avg_rent: float | None = None
+    trade_count: int = 0
+    rent_count: int = 0
+
+
 class MarketComparison(BaseModel):
     avg_market_price: float | None = None
     avg_sale_price: float | None = None
@@ -138,14 +146,6 @@ class InsuranceCheck(BaseModel):
     verdict: str = Field("", description="판정 결과 요약")
     reasons: list[str] = Field(default_factory=list, description="판정 근거")
     tips: list[str] = Field(default_factory=list, description="가입 팁")
-
-
-class MonthlyTrend(BaseModel):
-    month: str = Field("", description="YYYY-MM")
-    avg_trade: float | None = None
-    avg_rent: float | None = None
-    trade_count: int = 0
-    rent_count: int = 0
 
 
 class JeonseRisk(BaseModel):
