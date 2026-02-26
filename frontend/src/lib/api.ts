@@ -1,7 +1,7 @@
 import type { ListingAnalysisRequest, AnalysisReport } from "./types";
 
-const API_BASE = "";
-const BACKEND_DIRECT = process.env.NEXT_PUBLIC_BACKEND_URL ?? "";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+const BACKEND_DIRECT = process.env.NEXT_PUBLIC_BACKEND_URL || API_BASE;
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
