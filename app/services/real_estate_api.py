@@ -32,6 +32,7 @@ RENT_ENDPOINTS: dict[PropertyType, str] = {
 
 AREA_TOLERANCE_SQM = 10.0
 SAME_BUILDING_AREA_TOLERANCE = 15.0
+WIDE_AREA_TOLERANCE_SQM = 25.0
 QUERY_MONTHS = 12
 MAX_RECENT_TRADES = 15
 MIN_TIER_RECORDS = 3
@@ -43,6 +44,7 @@ SCOPE_DONG = "같은 동/읍/면"
 SCOPE_DONG_FMT = "같은 동/읍/면 · {area_min:.0f}~{area_max:.0f}㎡"
 SCOPE_DISTRICT = "시/군/구 전체"
 SCOPE_DISTRICT_FMT = "시/군/구 전체 · {area_min:.0f}~{area_max:.0f}㎡"
+SCOPE_DISTRICT_WIDE_FMT = "시/군/구 전체 (유사 평수) · {area_min:.0f}~{area_max:.0f}㎡"
 
 MOCK_SALE_PRICES: dict[str, float] = {
     "강남구": 65_000, "서초구": 60_000, "송파구": 50_000,
@@ -244,12 +246,14 @@ class RealEstateAPIService:
         tier1_building: list[TradeRecord] = []
         tier2_dong: list[TradeRecord] = []
         tier3_district: list[TradeRecord] = []
+        tier4_wide: list[TradeRecord] = []
 
         for r in records:
             is_same_building = _name_matches(building_name, r.name)
             is_same_dong = _dong_matches(dong_name, r.dong)
             is_area_wide = abs(r.area_sqm - area_sqm) <= SAME_BUILDING_AREA_TOLERANCE
             is_area_ok = abs(r.area_sqm - area_sqm) <= AREA_TOLERANCE_SQM
+            is_area_wider = abs(r.area_sqm - area_sqm) <= WIDE_AREA_TOLERANCE_SQM
 
             if is_same_building and is_area_wide:
                 tier1_building.append(r)
@@ -257,6 +261,8 @@ class RealEstateAPIService:
                 tier2_dong.append(r)
             if is_area_ok:
                 tier3_district.append(r)
+            if is_area_wider:
+                tier4_wide.append(r)
 
         if len(tier1_building) >= MIN_TIER_RECORDS:
             targets = tier1_building
@@ -273,6 +279,11 @@ class RealEstateAPIService:
             areas = [r.area_sqm for r in targets]
             scope = SCOPE_DISTRICT_FMT.format(area_min=min(areas), area_max=max(areas))
             logger.info("Tier3 (district): %d trades", len(targets))
+        elif tier4_wide:
+            targets = tier4_wide
+            areas = [r.area_sqm for r in targets]
+            scope = SCOPE_DISTRICT_WIDE_FMT.format(area_min=min(areas), area_max=max(areas))
+            logger.info("Tier4 (wide area ±25㎡): %d trades", len(targets))
         else:
             return None, 0, [], ""
 
@@ -290,12 +301,14 @@ class RealEstateAPIService:
         tier1_building: list[RentRecord] = []
         tier2_dong: list[RentRecord] = []
         tier3_district: list[RentRecord] = []
+        tier4_wide: list[RentRecord] = []
 
         for r in records:
             is_same_building = _name_matches(building_name, r.name)
             is_same_dong = _dong_matches(dong_name, r.dong)
             is_area_wide = abs(r.area_sqm - area_sqm) <= SAME_BUILDING_AREA_TOLERANCE
             is_area_ok = abs(r.area_sqm - area_sqm) <= AREA_TOLERANCE_SQM
+            is_area_wider = abs(r.area_sqm - area_sqm) <= WIDE_AREA_TOLERANCE_SQM
 
             if is_same_building and is_area_wide:
                 tier1_building.append(r)
@@ -303,6 +316,8 @@ class RealEstateAPIService:
                 tier2_dong.append(r)
             if is_area_ok:
                 tier3_district.append(r)
+            if is_area_wider:
+                tier4_wide.append(r)
 
         if len(tier1_building) >= MIN_TIER_RECORDS:
             targets = tier1_building
@@ -319,6 +334,11 @@ class RealEstateAPIService:
             areas = [r.area_sqm for r in targets]
             scope = SCOPE_DISTRICT_FMT.format(area_min=min(areas), area_max=max(areas))
             logger.info("Tier3 rent (district): %d records", len(targets))
+        elif tier4_wide:
+            targets = tier4_wide
+            areas = [r.area_sqm for r in targets]
+            scope = SCOPE_DISTRICT_WIDE_FMT.format(area_min=min(areas), area_max=max(areas))
+            logger.info("Tier4 rent (wide area ±25㎡): %d records", len(targets))
         else:
             return None, 0, [], ""
 
@@ -448,12 +468,18 @@ class RealEstateAPIService:
         trade_by_month: dict[str, list[float]] = defaultdict(list)
         rent_by_month: dict[str, list[float]] = defaultdict(list)
 
+        tolerance = AREA_TOLERANCE_SQM
+        trade_matched = sum(1 for r in trades if abs(r.area_sqm - area_sqm) <= tolerance)
+        rent_matched = sum(1 for r in rents if abs(r.area_sqm - area_sqm) <= tolerance)
+        if trade_matched < 3 and rent_matched < 3:
+            tolerance = WIDE_AREA_TOLERANCE_SQM
+
         for r in trades:
-            if abs(r.area_sqm - area_sqm) <= AREA_TOLERANCE_SQM:
+            if abs(r.area_sqm - area_sqm) <= tolerance:
                 key = f"{r.year}-{r.month:02d}"
                 trade_by_month[key].append(r.price)
         for r in rents:
-            if abs(r.area_sqm - area_sqm) <= AREA_TOLERANCE_SQM:
+            if abs(r.area_sqm - area_sqm) <= tolerance:
                 key = f"{r.year}-{r.month:02d}"
                 rent_by_month[key].append(r.deposit)
 
