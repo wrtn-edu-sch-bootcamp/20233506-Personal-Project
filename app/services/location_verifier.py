@@ -71,6 +71,26 @@ FACILITY_ALIASES = {
 }
 
 
+_FACILITY_SUFFIXES = re.compile(
+    r"(배드민턴|테니스|풋살|농구|게이트볼|족구|운동장|체육|주차장|화장실|"
+    r"놀이터|산책로|잔디광장|분수|매점|관리사무소|쉼터|정자|파고라|"
+    r"야구장|축구장|수영장|인라인|스케이트|볼링|탁구|헬스|체력단련)\s*장?$"
+)
+
+
+def _base_place_name(name: str) -> str:
+    """Extract the base facility name, stripping sub-facility suffixes.
+
+    '무슨근린공원배드민턴장' → '무슨근린공원'
+    '무슨근린공원 테니스장' → '무슨근린공원'
+    '한강공원' → '한강공원'
+    """
+    cleaned = name.strip()
+    cleaned = _FACILITY_SUFFIXES.sub("", cleaned).strip()
+    cleaned = re.sub(r"\s+\d+호점$", "", cleaned)
+    return cleaned
+
+
 def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Return distance in meters between two coords."""
     R = 6371000
@@ -221,8 +241,10 @@ class LocationVerifier:
         if not lat or not lng:
             return NearbyFacilities()
 
+        MAX_UNIQUE = 3
+        FETCH_SIZE = 10
+
         SEARCHES: list[tuple[str, str, str, int]] = [
-            # (field_name, search_type, code_or_keyword, search_radius)
             ("subway", "category", "SW8", 1500),
             ("school", "keyword", "학교", radius),
             ("mart", "category", "MT1", radius),
@@ -237,9 +259,9 @@ class LocationVerifier:
             field: str, stype: str, code_or_kw: str, r: int
         ) -> tuple[str, list[dict]]:
             if stype == "category":
-                results = await self._kakao.search_category(code_or_kw, lng, lat, radius=r, size=3)
+                results = await self._kakao.search_category(code_or_kw, lng, lat, radius=r, size=FETCH_SIZE)
             else:
-                results = await self._kakao.search_keyword_nearby(code_or_kw, lng, lat, radius=r, size=3)
+                results = await self._kakao.search_keyword_nearby(code_or_kw, lng, lat, radius=r, size=FETCH_SIZE)
             return field, results
 
         tasks = [_do_search(f, st, ck, sr) for f, st, ck, sr in SEARCHES]
@@ -251,16 +273,25 @@ class LocationVerifier:
                 continue
             field, places = result
             items: list[NearbyFacility] = []
+            seen_bases: set[str] = set()
             for p in places:
+                name = p.get("place_name", "")
+                base = _base_place_name(name)
+                if base in seen_bases:
+                    continue
+                seen_bases.add(base)
+
                 dist = int(p.get("distance", 0)) if p.get("distance") else round(
                     _haversine(lat, lng, float(p.get("y", 0)), float(p.get("x", 0)))
                 )
                 items.append(NearbyFacility(
-                    name=p.get("place_name", ""),
+                    name=name,
                     category=p.get("category_name", "").split(" > ")[-1] if p.get("category_name") else field,
                     distance_m=dist,
                     walk_min=_walk_minutes(dist),
                 ))
+                if len(items) >= MAX_UNIQUE:
+                    break
             data[field] = items
 
         return NearbyFacilities(**data)

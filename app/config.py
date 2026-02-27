@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    # gpt-4o: 고품질 분석 리포트 생성용. 비용 절약이 필요하면 gpt-4o-mini로 변경
 
     real_estate_api_key: str = ""
     kakao_api_key: str = ""
