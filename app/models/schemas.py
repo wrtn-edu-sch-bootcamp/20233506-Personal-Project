@@ -258,6 +258,28 @@ class NearbyFacilities(BaseModel):
     bank: list[NearbyFacility] = Field(default_factory=list)
 
 
+class BuildingRegisterInfo(BaseModel):
+    """건축물대장 조회 결과."""
+    found: bool = Field(False, description="건축물대장 조회 성공 여부")
+    building_name: str = ""
+    address: str = ""
+    main_purpose: str = Field("", description="주용도 (예: 공동주택, 근린생활시설)")
+    structure: str = Field("", description="구조 (예: 철근콘크리트)")
+    total_area: float = Field(0, description="연면적 (㎡)")
+    ground_floors: int = Field(0, description="지상층수")
+    underground_floors: int = Field(0, description="지하층수")
+    households: int = Field(0, description="세대수")
+    units: int = Field(0, description="호수")
+    elevator_count: int = Field(0, description="엘리베이터 수")
+    approval_date: str = Field("", description="사용승인일")
+    construction_year: int = Field(0, description="건축년도")
+    building_age: int = Field(0, description="건물 연식 (년)")
+    is_violation: bool = Field(False, description="위반건축물 여부")
+    violation_content: str = ""
+    energy_grade: str = ""
+    risk_factors: list[str] = Field(default_factory=list, description="건축물대장 기반 위험 요소")
+
+
 class InputSummary(BaseModel):
     """사용자가 입력한 매물 정보 요약."""
     address: str = ""
@@ -282,4 +304,5 @@ class AnalysisReport(BaseModel):
     market_comparison: MarketComparison
     location_verification: LocationVerification | None = None
     nearby_facilities: NearbyFacilities | None = None
+    building_info: BuildingRegisterInfo | None = Field(None, description="건축물대장 정보")
     jeonse_risk: JeonseRisk | None = None

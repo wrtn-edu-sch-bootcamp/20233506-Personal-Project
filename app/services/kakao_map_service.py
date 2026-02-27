@@ -41,10 +41,13 @@ class GeocodingResult:
     lat: float
     lng: float
     region_code: str  # 법정동 코드 10자리
-    lawd_cd: str      # 국토교통부 API용 5자리 코드
-    region_1depth: str  # 시/도
-    region_2depth: str  # 시/군/구
-    region_3depth: str  # 읍/면/동
+    lawd_cd: str      # 국토교통부 API용 5자리 코드 (시군구)
+    bjdong_cd: str = ""  # 법정동 코드 뒤 5자리
+    main_no: str = ""    # 지번 본번
+    sub_no: str = ""     # 지번 부번
+    region_1depth: str = ""  # 시/도
+    region_2depth: str = ""  # 시/군/구
+    region_3depth: str = ""  # 읍/면/동
 
 
 class KakaoMapService:
@@ -110,6 +113,8 @@ class KakaoMapService:
         region_1 = ""
         region_2 = ""
         region_3 = ""
+        main_no = ""
+        sub_no = ""
 
         if doc.get("address"):
             addr = doc["address"]
@@ -117,12 +122,17 @@ class KakaoMapService:
             region_1 = addr.get("region_1depth_name", "")
             region_2 = addr.get("region_2depth_name", "")
             region_3 = addr.get("region_3depth_name", "")
+            main_no = addr.get("main_address_no", "")
+            sub_no = addr.get("sub_address_no", "")
         elif doc.get("road_address"):
             road = doc["road_address"]
             b_code = road.get("zone_no", "")
             region_1 = road.get("region_1depth_name", "")
             region_2 = road.get("region_2depth_name", "")
             region_3 = road.get("region_3depth_name", "")
+            if doc.get("address"):
+                main_no = doc["address"].get("main_address_no", "")
+                sub_no = doc["address"].get("sub_address_no", "")
 
         if not b_code and doc.get("x") and doc.get("y"):
             region = await self._coord_to_region(float(doc["x"]), float(doc["y"]))
@@ -132,12 +142,17 @@ class KakaoMapService:
                 region_2 = region.get("region_2depth_name", region_2)
                 region_3 = region.get("region_3depth_name", region_3)
 
+        bjdong = b_code[5:] if len(b_code) >= 10 else ""
+
         return GeocodingResult(
             address=doc.get("address_name", address),
             lat=float(doc.get("y", 0)),
             lng=float(doc.get("x", 0)),
             region_code=b_code,
             lawd_cd=b_code[:5] if len(b_code) >= 5 else "",
+            bjdong_cd=bjdong,
+            main_no=main_no,
+            sub_no=sub_no,
             region_1depth=region_1,
             region_2depth=region_2,
             region_3depth=region_3,

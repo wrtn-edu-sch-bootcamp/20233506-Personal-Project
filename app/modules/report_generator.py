@@ -6,6 +6,7 @@ from app.models.schemas import (
     ListingType,
     AnalysisReport,
     AiReportSection,
+    BuildingRegisterInfo,
     InputSummary,
     TextAnalysisResult,
     MarketComparison,
@@ -20,6 +21,7 @@ from app.services.llm_service import LLMService
 from app.services.real_estate_api import RealEstateAPIService
 from app.services.kakao_map_service import KakaoMapService
 from app.services.location_verifier import LocationVerifier
+from app.services.building_register import BuildingRegisterService
 from app.utils.scoring import calculate_reliability_score, score_to_grade
 
 logger = logging.getLogger(__name__)
@@ -229,6 +231,13 @@ class ReportGenerator:
             req.address, extracted_info.location_claims, req.listing_text,
         )))
 
+        bld_service = BuildingRegisterService()
+        parallel_tasks.append(("building", bld_service.get_building_info(
+            req.address, building_name=req.building_name,
+        )))
+
+        building_info: BuildingRegisterInfo | None = None
+
         if parallel_tasks:
             task_results = await asyncio.gather(
                 *[t[1] for t in parallel_tasks],
@@ -241,6 +250,31 @@ class ReportGenerator:
                     jeonse_risk = result
                 elif name == "location":
                     location_verification, nearby_facilities = result
+                elif name == "building":
+                    from app.services.building_register import BuildingInfo
+                    if isinstance(result, BuildingInfo) and result.found:
+                        building_info = BuildingRegisterInfo(
+                            found=True,
+                            building_name=result.building_name,
+                            address=result.address or result.road_address,
+                            main_purpose=result.main_purpose,
+                            structure=result.structure,
+                            total_area=result.total_area,
+                            ground_floors=result.ground_floors,
+                            underground_floors=result.underground_floors,
+                            households=result.households,
+                            units=result.units,
+                            elevator_count=result.elevator_count,
+                            approval_date=result.approval_date,
+                            construction_year=result.construction_year,
+                            building_age=result.building_age,
+                            is_violation=result.is_violation,
+                            violation_content=result.violation_content,
+                            energy_grade=result.energy_grade,
+                            risk_factors=result.risk_factors,
+                        )
+                        if jeonse_risk and result.risk_factors:
+                            jeonse_risk.risk_factors.extend(result.risk_factors)
 
         reliability = calculate_reliability_score(
             text_score,
@@ -255,6 +289,7 @@ class ReportGenerator:
             listing_text=req.listing_text,
             location_verification=location_verification,
             nearby_facilities=nearby_facilities,
+            building_info=building_info,
         )
 
         eval_prompt = EVAL_PROMPTS.get(req.listing_type, EVALUATION_PROMPT_JEONSE)
@@ -291,6 +326,7 @@ class ReportGenerator:
             market_comparison=market_comparison,
             location_verification=location_verification,
             nearby_facilities=nearby_facilities,
+            building_info=building_info,
             jeonse_risk=jeonse_risk,
         )
 
@@ -335,7 +371,7 @@ class ReportGenerator:
     def _build_summary(
         req, score, grade, text_result, market, jeonse,
         listing_text: str = "", location_verification=None,
-        nearby_facilities=None,
+        nearby_facilities=None, building_info=None,
     ) -> str:
         parts = [
             f"매물 유형: {req.listing_type.value} ({req.property_type.value})",
@@ -443,6 +479,22 @@ class ReportGenerator:
             if fac_parts:
                 parts.append("\n--- 주변 편의시설 ---")
                 parts.extend(fac_parts)
+
+        if building_info and building_info.found:
+            parts.append("\n--- 건축물대장 정보 ---")
+            parts.append(f"주용도: {building_info.main_purpose}")
+            parts.append(f"구조: {building_info.structure}")
+            if building_info.construction_year:
+                parts.append(f"건축년도: {building_info.construction_year}년 (건물 연식: {building_info.building_age}년)")
+            if building_info.ground_floors:
+                parts.append(f"층수: 지상 {building_info.ground_floors}층 / 지하 {building_info.underground_floors}층")
+            if building_info.households:
+                parts.append(f"세대수: {building_info.households}세대 / {building_info.units}호")
+            if building_info.is_violation:
+                parts.append(f"⚠️ 위반건축물: {building_info.violation_content or '해당'}")
+            if building_info.risk_factors:
+                for rf in building_info.risk_factors:
+                    parts.append(f"  ⚠️ {rf}")
 
         if listing_text and listing_text.strip():
             truncated = listing_text.strip()[:800]

@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnalysisReport as Report, Severity, MonthlyTrend, AiReportSection, LocationClaim, NearbyFacility, InputSummary } from "@/lib/types";
+import type { AnalysisReport as Report, Severity, MonthlyTrend, AiReportSection, LocationClaim, NearbyFacility, InputSummary, BuildingRegisterInfo } from "@/lib/types";
 import ScoreRing from "./score-ring";
 import RiskBadge from "./risk-badge";
 
@@ -214,6 +214,9 @@ export default function AnalysisReport({ report, areaSqm = 0 }: { report: Report
 
       {/* 주변 편의시설 */}
       {report.nearby_facilities && <NearbyFacilitiesSection data={report.nearby_facilities} />}
+
+      {/* 건축물대장 */}
+      {report.building_info?.found && <BuildingInfoSection data={report.building_info} />}
 
       {/* 시세 비교 */}
       <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -611,6 +614,61 @@ export default function AnalysisReport({ report, areaSqm = 0 }: { report: Report
         </section>
       )}
     </div>
+  );
+}
+
+function BuildingInfoSection({ data }: { data: BuildingRegisterInfo }) {
+  const items: { label: string; value: string }[] = [];
+  if (data.main_purpose) items.push({ label: "주용도", value: data.main_purpose });
+  if (data.structure) items.push({ label: "구조", value: data.structure });
+  if (data.construction_year) items.push({ label: "건축년도", value: `${data.construction_year}년 (${data.building_age}년 경과)` });
+  if (data.ground_floors) items.push({ label: "층수", value: `지상 ${data.ground_floors}층 / 지하 ${data.underground_floors}층` });
+  if (data.households) items.push({ label: "세대/호수", value: `${data.households}세대 / ${data.units}호` });
+  if (data.elevator_count) items.push({ label: "엘리베이터", value: `${data.elevator_count}대` });
+  if (data.total_area) items.push({ label: "연면적", value: `${data.total_area.toLocaleString()}㎡` });
+  if (data.energy_grade) items.push({ label: "에너지효율등급", value: data.energy_grade });
+  if (data.building_name) items.push({ label: "건물명", value: data.building_name });
+  if (data.address) items.push({ label: "대지위치", value: data.address });
+
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+      <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-gray-900">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-sm">🏗️</span>
+        건축물대장 정보
+        <Tip text="공공데이터포털 건축물대장 API를 통해 조회한 건물 정보입니다. 위반건축물 여부, 건물 용도, 건축년도 등을 확인하여 전세사기 위험 요소를 추가 판단합니다." />
+      </h2>
+
+      {data.is_violation && (
+        <div className="mb-4 rounded-lg bg-red-50 p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-red-700">
+            🚨 위반건축물
+          </p>
+          <p className="mt-1 text-xs text-red-600">
+            {data.violation_content || "이 건물은 건축법 위반 건축물로 등록되어 있습니다."}
+            {" "}전세보증보험(HUG) 가입이 불가능하며, 사용 제한·철거 명령 등의 위험이 있습니다.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2.5 text-xs sm:grid-cols-3">
+        {items.map((item, i) => (
+          <div key={i} className="rounded-lg bg-gray-50 px-3 py-2.5">
+            <span className="text-gray-400">{item.label}</span>
+            <p className="mt-0.5 font-medium text-gray-800">{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {data.risk_factors.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {data.risk_factors.map((rf, i) => (
+            <div key={i} className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+              ⚠️ {rf}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

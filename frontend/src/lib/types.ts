@@ -153,6 +153,27 @@ export interface NearbyFacilities {
   bank: NearbyFacility[];
 }
 
+export interface BuildingRegisterInfo {
+  found: boolean;
+  building_name: string;
+  address: string;
+  main_purpose: string;
+  structure: string;
+  total_area: number;
+  ground_floors: number;
+  underground_floors: number;
+  households: number;
+  units: number;
+  elevator_count: number;
+  approval_date: string;
+  construction_year: number;
+  building_age: number;
+  is_violation: boolean;
+  violation_content: string;
+  energy_grade: string;
+  risk_factors: string[];
+}
+
 export interface InputSummary {
   address: string;
   building_name: string;
@@ -176,5 +197,6 @@ export interface AnalysisReport {
   market_comparison: MarketComparison;
   location_verification: LocationVerification | null;
   nearby_facilities: NearbyFacilities | null;
+  building_info: BuildingRegisterInfo | null;
   jeonse_risk: JeonseRisk | null;
 }
