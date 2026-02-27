@@ -258,12 +258,25 @@ class NearbyFacilities(BaseModel):
     bank: list[NearbyFacility] = Field(default_factory=list)
 
 
+class InputSummary(BaseModel):
+    """사용자가 입력한 매물 정보 요약."""
+    address: str = ""
+    building_name: str = ""
+    listing_type: str = ""
+    property_type: str = ""
+    deposit: float = 0
+    monthly_rent: float | None = None
+    area_sqm: float = 0
+    area_pyeong: float = 0
+
+
 class AnalysisReport(BaseModel):
     listing_type: ListingType = Field(ListingType.JEONSE, description="분석 매물 유형")
     reliability_score: float = Field(..., ge=0, le=100)
     reliability_grade: RiskGrade
     evaluation: str = Field("", description="AI 종합 평가 코멘트")
     ai_report: list[AiReportSection] = Field(default_factory=list, description="AI 상세 분석 리포트 섹션")
+    input_summary: InputSummary | None = Field(None, description="사용자 입력 정보 요약")
     text_analysis: TextAnalysisResult
     extracted_info: ExtractedInfo
     market_comparison: MarketComparison

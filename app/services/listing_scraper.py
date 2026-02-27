@@ -1,4 +1,5 @@
 import asyncio
+import json as _json
 import logging
 import re
 from typing import Any
@@ -63,6 +64,12 @@ NAVER_PROPERTY_TYPE = {
     "VL": "연립다세대", "DDDGG": "단독다가구",
     "JT": "단독다가구", "SG": "단독다가구",
 }
+NAVER_RE_TYPE = {
+    "A01": "아파트", "A02": "오피스텔",
+    "B01": "연립다세대", "C01": "단독다가구", "C02": "단독다가구",
+    "D01": "아파트", "D02": "오피스텔",
+}
+NAVER_TRADE_CODE = {"A1": "매매", "B1": "전세", "B2": "월세", "B3": "단기임대"}
 
 
 def _detect_source(url: str) -> str:
@@ -188,6 +195,54 @@ def _looks_like_address(text: str) -> bool:
     return len(text) < 50
 
 
+def _extract_naver_rsc_data(html: str) -> dict[str, Any] | None:
+    """Extract dehydrated query data from Naver's Next.js RSC streaming chunks.
+
+    fin.land.naver.com embeds article data in self.__next_f.push() calls.
+    API endpoints return 429 from servers, but this data is always present.
+    """
+    chunks: list[str] = []
+    for m in re.finditer(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL):
+        raw = m.group(1)
+        try:
+            decoded: str = _json.loads('"' + raw + '"')
+        except (_json.JSONDecodeError, UnicodeDecodeError):
+            decoded = raw
+        chunks.append(decoded)
+
+    if not chunks:
+        return None
+
+    combined = "".join(chunks)
+    dehy_positions = [m.start() for m in re.finditer(r'"dehydratedAt"', combined)]
+
+    result: dict[str, Any] = {}
+    for qkey in ("GET /article/basicInfo", "GET /article/key"):
+        pattern = rf'"queryKey":\["{re.escape(qkey)}"'
+        match = re.search(pattern, combined)
+        if not match:
+            continue
+
+        preceding = [p for p in dehy_positions if p < match.start()]
+        if not preceding:
+            continue
+
+        block_start = preceding[-1]
+        segment = combined[block_start : match.end() + 100]
+
+        data_match = re.search(r'"data":(.*?)(?="dataUpdateCount")', segment, re.DOTALL)
+        if data_match:
+            data_str = data_match.group(1).strip().rstrip(",")
+            try:
+                data = _json.loads(data_str)
+                if isinstance(data, dict) and data.get("isSuccess"):
+                    result[qkey] = data.get("result", {})
+            except _json.JSONDecodeError:
+                pass
+
+    return result if result else None
+
+
 def _guess_listing_type(text: str) -> str:
     if "매매" in text:
         return "매매"
@@ -266,13 +321,28 @@ class ListingScraper:
                 listing_text="URL에서 매물 ID를 찾을 수 없습니다. 네이버부동산 매물 URL을 확인해주세요.",
             )
 
+        html, status = await self._fetch_naver_page(url)
+
+        if status in (404, 410) or (html and "/404" in html[:200]):
+            return ScrapeListingResponse(
+                source="네이버부동산",
+                listing_text=f"네이버부동산 매물(ID: {article_id})이 존재하지 않습니다. 매물이 삭제되었거나 거래가 완료된 것 같습니다.",
+            )
+
+        if html:
+            result = self._parse_naver_rsc(html)
+            if result:
+                logger.info("Naver RSC extraction succeeded for %s", article_id)
+                return result
+
         result = await self._try_naver_api(article_id)
         if result:
             return result
 
-        result = await self._try_naver_html(url, article_id)
-        if result:
-            return result
+        if html:
+            result = self._parse_naver_og_fallback(html)
+            if result:
+                return result
 
         return ScrapeListingResponse(
             source="네이버부동산",
@@ -283,6 +353,89 @@ class ListingScraper:
                 "• 비공개 매물이거나 임시 접근 제한 중입니다\n\n"
                 "매물이 존재하는 경우, 매물 페이지의 정보를 직접 입력해주세요."
             ),
+        )
+
+    async def _fetch_naver_page(self, url: str) -> tuple[str | None, int]:
+        """Fetch the Naver article HTML page once (reused by RSC + OG fallback)."""
+        try:
+            async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+                resp = await client.get(url, headers=BROWSER_HEADERS)
+            return resp.text, resp.status_code
+        except Exception as e:
+            logger.debug("Naver page fetch failed: %s", e)
+            return None, 0
+
+    def _parse_naver_rsc(self, html: str) -> ScrapeListingResponse | None:
+        """Parse RSC streaming data embedded in Naver's Next.js page."""
+        rsc = _extract_naver_rsc_data(html)
+        if not rsc:
+            return None
+
+        basic = rsc.get("GET /article/basicInfo", {})
+        key_data = rsc.get("GET /article/key", {})
+
+        if not basic:
+            return None
+
+        price_info = basic.get("priceInfo", {})
+        price_won = int(price_info.get("price", 0) or 0)
+        deposit = price_won // 10000 if price_won else None
+
+        monthly_rent_won = int(price_info.get("monthlyRent") or price_info.get("previousMonthlyRent") or 0)
+        monthly_rent = monthly_rent_won // 10000 if monthly_rent_won else None
+
+        detail = basic.get("detailInfo", {})
+        article_info = detail.get("articleDetailInfo", {})
+
+        building_name = article_info.get("articleName", "")
+        feature_desc = article_info.get("articleFeatureDescription", "")
+        full_desc = article_info.get("articleDescription", "")
+        listing_text = f"{feature_desc}\n{full_desc}".strip()
+        if not listing_text:
+            listing_text = f"{building_name} 매물"
+
+        size = detail.get("sizeInfo", {})
+        area = _safe_float(size.get("exclusiveSpace"))
+
+        space = detail.get("spaceInfo", {})
+        floor_data = space.get("floorInfo", {})
+        floor_str = ""
+        if floor_data.get("targetFloor") and floor_data.get("totalFloor"):
+            floor_str = f"{floor_data['targetFloor']}/{floor_data['totalFloor']}층"
+
+        type_info = key_data.get("type", {})
+        re_type = type_info.get("realEstateType", "")
+        trade_type = type_info.get("tradeType", "")
+        listing_type = NAVER_TRADE_CODE.get(trade_type, "")
+        property_type = NAVER_RE_TYPE.get(re_type, "")
+
+        coords = article_info.get("coordinates", {})
+        lat = _safe_float(coords.get("yCoordinate"))
+        lng = _safe_float(coords.get("xCoordinate"))
+
+        meta = _extract_og_meta(html)
+        og_title = meta.get("title", "")
+        if og_title and og_title not in ("네이버페이 부동산", ""):
+            skip_names = {"네이버", "부동산", "매물", "네이버페이", "네이버부동산"}
+            if og_title.split(" ")[0] not in skip_names:
+                building_name = og_title
+
+        if not deposit and not building_name:
+            return None
+
+        return ScrapeListingResponse(
+            address="",
+            building_name=building_name,
+            deposit=deposit,
+            monthly_rent=monthly_rent if monthly_rent and monthly_rent > 0 else None,
+            area_sqm=area,
+            floor=floor_str,
+            listing_text=listing_text,
+            listing_type=listing_type,
+            property_type=property_type,
+            source="네이버부동산",
+            source_lat=lat,
+            source_lng=lng,
         )
 
     async def _try_naver_api(self, article_id: str) -> ScrapeListingResponse | None:
@@ -327,22 +480,9 @@ class ListingScraper:
 
         return None
 
-    async def _try_naver_html(self, url: str, article_id: str) -> ScrapeListingResponse | None:
+    def _parse_naver_og_fallback(self, html: str) -> ScrapeListingResponse | None:
+        """Last-resort: extract what we can from OG meta tags."""
         try:
-            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-                resp = await client.get(url, headers=BROWSER_HEADERS)
-
-            final_url = str(resp.url)
-            if "/404" in final_url:
-                return None
-
-            if resp.status_code in (404, 410):
-                return None
-
-            if resp.status_code != 200:
-                return None
-
-            html = resp.text
             meta = _extract_og_meta(html)
 
             if not meta.get("title") and not meta.get("description"):
@@ -374,20 +514,17 @@ class ListingScraper:
                 deposit = _safe_int(rent_match.group(1).replace(",", ""))
                 monthly_rent = _safe_int(rent_match.group(2).replace(",", ""))
 
-            raw_address = meta.get("description", "")
-            address = raw_address if _looks_like_address(raw_address) else ""
-
             raw_building = title.split(" ")[0] if title else ""
             building_name = ""
             skip_names = {"네이버", "부동산", "매물", "네이버페이", "네이버부동산"}
             if raw_building and raw_building not in skip_names:
                 building_name = raw_building
 
-            if not address and not building_name and not deposit:
+            if not building_name and not deposit:
                 return None
 
             return ScrapeListingResponse(
-                address=address,
+                address="",
                 building_name=building_name,
                 deposit=deposit,
                 monthly_rent=monthly_rent,
@@ -399,7 +536,7 @@ class ListingScraper:
             )
 
         except Exception as e:
-            logger.debug("Naver HTML fallback failed: %s", e)
+            logger.debug("Naver OG fallback failed: %s", e)
             return None
 
     def _parse_naver_data(self, data: dict, article_id: str) -> ScrapeListingResponse:

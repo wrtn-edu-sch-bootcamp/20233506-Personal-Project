@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnalysisReport as Report, Severity, MonthlyTrend, AiReportSection, LocationClaim, NearbyFacility } from "@/lib/types";
+import type { AnalysisReport as Report, Severity, MonthlyTrend, AiReportSection, LocationClaim, NearbyFacility, InputSummary } from "@/lib/types";
 import ScoreRing from "./score-ring";
 import RiskBadge from "./risk-badge";
 
@@ -80,6 +80,9 @@ export default function AnalysisReport({ report, areaSqm = 0 }: { report: Report
           </div>
         </div>
       </section>
+
+      {/* 입력 정보 요약 */}
+      {report.input_summary && <InputSummarySection summary={report.input_summary} />}
 
       {/* AI 종합 평가 요약 */}
       <section className="rounded-2xl border border-blue-100 bg-blue-50/50 p-6 shadow-sm">
@@ -608,6 +611,53 @@ export default function AnalysisReport({ report, areaSqm = 0 }: { report: Report
         </section>
       )}
     </div>
+  );
+}
+
+function InputSummarySection({ summary }: { summary: InputSummary }) {
+  const typeLabel = summary.listing_type || "-";
+  const priceLabel = summary.deposit ? fmtPrice(summary.deposit) : "-";
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-gray-50/50 p-5 shadow-sm">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-700">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-200 text-xs">📋</span>
+        분석 매물 정보
+      </h2>
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        {summary.address && (
+          <div className="col-span-2 rounded-lg bg-white px-3 py-2">
+            <span className="text-gray-400">주소</span>
+            <p className="font-medium text-gray-800">{summary.address}</p>
+          </div>
+        )}
+        {summary.building_name && (
+          <div className="rounded-lg bg-white px-3 py-2">
+            <span className="text-gray-400">건물명</span>
+            <p className="font-medium text-gray-800">{summary.building_name}</p>
+          </div>
+        )}
+        <div className="rounded-lg bg-white px-3 py-2">
+          <span className="text-gray-400">거래유형</span>
+          <p className="font-medium text-gray-800">{typeLabel} · {summary.property_type || "-"}</p>
+        </div>
+        <div className="rounded-lg bg-white px-3 py-2">
+          <span className="text-gray-400">{typeLabel === "매매" ? "매매가" : "보증금"}</span>
+          <p className="font-medium text-gray-800">{priceLabel}</p>
+        </div>
+        {summary.monthly_rent != null && summary.monthly_rent > 0 && (
+          <div className="rounded-lg bg-white px-3 py-2">
+            <span className="text-gray-400">월세</span>
+            <p className="font-medium text-gray-800">{fmtPrice(summary.monthly_rent)}</p>
+          </div>
+        )}
+        {summary.area_sqm > 0 && (
+          <div className="rounded-lg bg-white px-3 py-2">
+            <span className="text-gray-400">면적</span>
+            <p className="font-medium text-gray-800">{summary.area_sqm}㎡ ({summary.area_pyeong}평)</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

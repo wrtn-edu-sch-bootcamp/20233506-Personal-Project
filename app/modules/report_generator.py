@@ -6,6 +6,7 @@ from app.models.schemas import (
     ListingType,
     AnalysisReport,
     AiReportSection,
+    InputSummary,
     TextAnalysisResult,
     MarketComparison,
     RegistryAnalysis,
@@ -210,11 +211,13 @@ class ReportGenerator:
                 )
 
             sale_price = market_comparison.avg_sale_price
+            avg_jeonse = market_comparison.avg_market_price if req.listing_type == ListingType.JEONSE else None
             jeonse_analyzer = JeonseAnalyzer(self._llm)
             is_metro = any(k in req.address for k in ("서울", "경기", "인천"))
             parallel_tasks.append(("jeonse", jeonse_analyzer.analyze(
                 deposit=req.deposit,
                 market_price=sale_price,
+                avg_jeonse_price=avg_jeonse,
                 registry_text=registry_text,
                 registry_data=registry_data,
                 text_risk_level=text_risk,
@@ -265,12 +268,24 @@ class ReportGenerator:
         evaluation = eval_results[0] if isinstance(eval_results[0], str) else ""
         ai_report = eval_results[1] if isinstance(eval_results[1], list) else []
 
+        input_summary = InputSummary(
+            address=req.address,
+            building_name=req.building_name,
+            listing_type=req.listing_type.value,
+            property_type=req.property_type.value,
+            deposit=req.deposit,
+            monthly_rent=req.monthly_rent,
+            area_sqm=req.area_sqm,
+            area_pyeong=round(req.area_sqm / 3.3058, 1),
+        )
+
         return AnalysisReport(
             listing_type=req.listing_type,
             reliability_score=reliability,
             reliability_grade=grade,
             evaluation=evaluation,
             ai_report=ai_report,
+            input_summary=input_summary,
             text_analysis=text_result,
             extracted_info=extracted_info,
             market_comparison=market_comparison,

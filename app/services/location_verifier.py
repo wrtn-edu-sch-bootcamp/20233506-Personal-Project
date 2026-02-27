@@ -91,6 +91,49 @@ def _base_place_name(name: str) -> str:
     return cleaned
 
 
+_PARK_EXCLUDE = re.compile(
+    r"(스크립트|카페|커피|치킨|식당|레스토랑|미용|뷰티|네일|헤어|주점|바$|펍|"
+    r"베이커리|빵집|학원|교습소|부동산|중개|약국|의원|병원|마트|"
+    r"편의점|세탁|호텔|모텔|숙박|노래방|PC방|피시방|스터디|"
+    r"점$|샵$|shop$|studio$)",
+    re.IGNORECASE,
+)
+
+
+def _is_real_park(name: str, category_name: str = "") -> bool:
+    """Filter out businesses that happen to contain '공원' in their name."""
+    if _PARK_EXCLUDE.search(name):
+        return False
+    cat_lower = category_name.lower()
+    if "음식" in cat_lower or "카페" in cat_lower or "문화" in cat_lower:
+        if "공원" not in cat_lower and "체육" not in cat_lower:
+            return False
+    return True
+
+
+_BANK_EXCLUDE = re.compile(
+    r"(ATM|자동화|무인|CD기|현금인출|출장소$|CU\s|GS\s|세븐일레븐|이마트24|미니스톱)",
+    re.IGNORECASE,
+)
+
+
+def _is_real_bank(name: str) -> bool:
+    """Filter out ATMs and convenience store banking from bank results."""
+    return not _BANK_EXCLUDE.search(name)
+
+
+_SCHOOL_EXCLUDE = re.compile(
+    r"(행정실|급식실|도서관|체육관$|관리실|수위실|당직실|Wee센터|"
+    r"방과후|특수학급|병설유치원|부설|분교)",
+    re.IGNORECASE,
+)
+
+
+def _is_real_school(name: str) -> bool:
+    """Filter out admin offices and sub-facilities of schools."""
+    return not _SCHOOL_EXCLUDE.search(name)
+
+
 def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Return distance in meters between two coords."""
     R = 6371000
@@ -267,6 +310,12 @@ class LocationVerifier:
         tasks = [_do_search(f, st, ck, sr) for f, st, ck, sr in SEARCHES]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        FIELD_FILTER = {
+            "park": lambda n, c: _is_real_park(n, c),
+            "bank": lambda n, c: _is_real_bank(n),
+            "school": lambda n, c: _is_real_school(n),
+        }
+
         data: dict[str, list[NearbyFacility]] = {}
         for result in raw_results:
             if isinstance(result, Exception):
@@ -274,8 +323,14 @@ class LocationVerifier:
             field, places = result
             items: list[NearbyFacility] = []
             seen_bases: set[str] = set()
+            name_filter = FIELD_FILTER.get(field)
             for p in places:
                 name = p.get("place_name", "")
+                cat_name = p.get("category_name", "")
+
+                if name_filter and not name_filter(name, cat_name):
+                    continue
+
                 base = _base_place_name(name)
                 if base in seen_bases:
                     continue
@@ -286,7 +341,7 @@ class LocationVerifier:
                 )
                 items.append(NearbyFacility(
                     name=name,
-                    category=p.get("category_name", "").split(" > ")[-1] if p.get("category_name") else field,
+                    category=cat_name.split(" > ")[-1] if cat_name else field,
                     distance_m=dist,
                     walk_min=_walk_minutes(dist),
                 ))

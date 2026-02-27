@@ -109,20 +109,22 @@ class MarketComparator:
             scope = data.rent_scope
 
         recent_trades: list[RecentTrade] = []
-        for r in data.recent_trade_records:
-            recent_trades.append(RecentTrade(
-                price=r.price, area_sqm=r.area_sqm,
-                year=r.year, month=r.month, day=r.day,
-                dong=r.dong, name=r.name, floor=r.floor,
-                trade_type="매매",
-            ))
-        for r in data.recent_rent_records:
-            recent_trades.append(RecentTrade(
-                price=r.deposit, area_sqm=r.area_sqm,
-                year=r.year, month=r.month, day=r.day,
-                dong=r.dong, name=r.name, floor=r.floor,
-                trade_type="전세",
-            ))
+        if listing_type == ListingType.SALE:
+            for r in data.recent_trade_records:
+                recent_trades.append(RecentTrade(
+                    price=r.price, area_sqm=r.area_sqm,
+                    year=r.year, month=r.month, day=r.day,
+                    dong=r.dong, name=r.name, floor=r.floor,
+                    trade_type="매매",
+                ))
+        else:
+            for r in data.recent_rent_records:
+                recent_trades.append(RecentTrade(
+                    price=r.deposit, area_sqm=r.area_sqm,
+                    year=r.year, month=r.month, day=r.day,
+                    dong=r.dong, name=r.name, floor=r.floor,
+                    trade_type="전세",
+                ))
         recent_trades.sort(key=lambda t: (t.year, t.month, t.day), reverse=True)
 
         monthly_trends = [
@@ -137,6 +139,7 @@ class MarketComparator:
         ]
 
         price_trend = _compute_trend(data.monthly_stats, listing_type)
+
         jeonse_rate_market, jeonse_rate_risk = _compute_jeonse_rate(
             data.avg_rent_deposit, data.avg_trade_price,
         )

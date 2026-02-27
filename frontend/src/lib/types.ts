@@ -153,12 +153,24 @@ export interface NearbyFacilities {
   bank: NearbyFacility[];
 }
 
+export interface InputSummary {
+  address: string;
+  building_name: string;
+  listing_type: string;
+  property_type: string;
+  deposit: number;
+  monthly_rent: number | null;
+  area_sqm: number;
+  area_pyeong: number;
+}
+
 export interface AnalysisReport {
   listing_type: ListingType;
   reliability_score: number;
   reliability_grade: RiskGrade;
   evaluation: string;
   ai_report: AiReportSection[];
+  input_summary: InputSummary | null;
   text_analysis: TextAnalysisResult;
   extracted_info: ExtractedInfo;
   market_comparison: MarketComparison;

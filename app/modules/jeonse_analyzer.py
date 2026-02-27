@@ -77,6 +77,7 @@ class JeonseAnalyzer:
         self,
         deposit: float,
         market_price: float | None,
+        avg_jeonse_price: float | None = None,
         registry_text: str | None = None,
         registry_data: RegistryAnalysis | None = None,
         text_risk_level: str = "normal",
@@ -112,8 +113,9 @@ class JeonseAnalyzer:
             )
 
         price_deviation = None
-        if market_price and market_price > 0:
-            price_deviation = ((deposit - market_price) / market_price) * 100
+        ref = avg_jeonse_price if avg_jeonse_price and avg_jeonse_price > 0 else None
+        if ref:
+            price_deviation = ((deposit - ref) / ref) * 100
 
         risk_score = calculate_jeonse_risk_score(
             jeonse_rate=jeonse_rate,
