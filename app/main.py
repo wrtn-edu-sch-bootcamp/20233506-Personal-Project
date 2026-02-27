@@ -29,7 +29,6 @@ from app.services.llm_service import LLMService
 from app.services.real_estate_api import RealEstateAPIService
 from app.services.kakao_map_service import KakaoMapService
 from app.services.listing_scraper import ListingScraper
-from app.services.zigbang_api import ZigbangAPIService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -202,71 +201,6 @@ async def geocode_address(address: str):
         region_2depth=result.region_2depth,
         region_3depth=result.region_3depth,
     )
-
-
-# ── 직방 매물 검색 ──
-
-@app.get("/api/zigbang/search")
-async def zigbang_search(q: str):
-    """직방 지역/주소 키워드 검색."""
-    service = ZigbangAPIService()
-    results = await service.search_region(q)
-    return [
-        {"name": r.name, "lat": r.lat, "lng": r.lng, "id": r.id, "type": r.type}
-        for r in results
-    ]
-
-
-@app.get("/api/zigbang/listings")
-async def zigbang_listings(
-    lat: float,
-    lng: float,
-    sales_type: str = "전세",
-    service_type: str = "원룸",
-):
-    """좌표 기반 직방 매물 목록 조회."""
-    service = ZigbangAPIService()
-    items = await service.get_listings(lat, lng, sales_type, service_type)
-    return [
-        {
-            "item_id": it.item_id,
-            "sales_type": it.sales_type,
-            "service_type": it.service_type,
-            "deposit": it.deposit,
-            "rent": it.rent,
-            "area_m2": it.area_m2,
-            "floor": it.floor,
-            "address": it.address,
-            "title": it.title,
-            "image_url": it.image_url,
-            "manage_cost": it.manage_cost,
-        }
-        for it in items
-        if it.item_id
-    ]
-
-
-@app.get("/api/zigbang/detail/{item_id}")
-async def zigbang_detail(item_id: int):
-    """직방 매물 상세 조회."""
-    service = ZigbangAPIService()
-    item = await service.get_listing_detail(item_id)
-    if not item:
-        return {"error": "매물을 찾을 수 없습니다"}
-    return {
-        "item_id": item.item_id,
-        "sales_type": item.sales_type,
-        "service_type": item.service_type,
-        "deposit": item.deposit,
-        "rent": item.rent,
-        "area_m2": item.area_m2,
-        "floor": item.floor,
-        "address": item.address,
-        "title": item.title,
-        "description": item.description,
-        "image_url": item.image_url,
-        "manage_cost": item.manage_cost,
-    }
 
 
 if __name__ == "__main__":

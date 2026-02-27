@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import ListingForm from "@/components/listing-form";
-import type { ListingFormPrefill } from "@/components/listing-form";
 import AnalysisReport from "@/components/analysis-report";
 import ComparisonView, { getReports, saveReport, removeReport } from "@/components/comparison-view";
-import ZigbangSearch from "@/components/zigbang-search";
 import type { ListingAnalysisRequest, AnalysisReport as Report } from "@/lib/types";
 import { analyzeListing } from "@/lib/api";
 
@@ -18,17 +16,16 @@ const LOADING_MESSAGES = [
   "거의 완료되었습니다. 조금만 기다려주세요...",
 ];
 
-type Tab = "search" | "input" | "result" | "compare";
+type Tab = "input" | "result" | "compare";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "search", label: "매물 검색", icon: "🔍" },
   { id: "input", label: "매물 분석", icon: "📝" },
   { id: "result", label: "분석 결과", icon: "📊" },
   { id: "compare", label: "매물 비교", icon: "⚖️" },
 ];
 
 export default function HomePage() {
-  const [tab, setTab] = useState<Tab>("search");
+  const [tab, setTab] = useState<Tab>("input");
   const [report, setReport] = useState<Report | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +34,6 @@ export default function HomePage() {
   const [lastAreaSqm, setLastAreaSqm] = useState(0);
   const [loadingMsg, setLoadingMsg] = useState(LOADING_MESSAGES[0]);
   const loadingInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [prefill, setPrefill] = useState<ListingFormPrefill | null>(null);
   const [prefillKey, setPrefillKey] = useState(0);
 
   useEffect(() => {
@@ -165,38 +161,11 @@ export default function HomePage() {
         </div>
       </nav>
 
-      {/* Tab: 매물 검색 */}
-      {tab === "search" && (
-        <div className="space-y-4">
-          <ZigbangSearch
-            onSelect={(item) => {
-              setPrefill(item);
-              setPrefillKey((k) => k + 1);
-              setTab("input");
-            }}
-          />
-        </div>
-      )}
-
       {/* Tab: 매물 분석 (입력 폼) */}
       {tab === "input" && (
         <div className="space-y-4">
-          {prefill && (
-            <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-4 py-2.5 text-sm text-indigo-700">
-              <span>🏠</span>
-              <span className="font-medium">
-                {prefill.building_name || prefill.address || "직방 매물"} 정보가 자동 입력되었습니다.
-              </span>
-              <button
-                onClick={() => { setPrefill(null); setPrefillKey((k) => k + 1); }}
-                className="ml-auto text-xs text-indigo-500 hover:text-indigo-700"
-              >
-                초기화
-              </button>
-            </div>
-          )}
           <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-7">
-            <ListingForm key={prefillKey} onSubmit={handleSubmit} isLoading={isLoading} prefill={prefill} />
+            <ListingForm key={prefillKey} onSubmit={handleSubmit} isLoading={isLoading} />
           </section>
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -234,7 +203,7 @@ export default function HomePage() {
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 py-20 text-center">
               <span className="text-4xl">📊</span>
               <p className="mt-4 text-sm font-medium text-gray-500">아직 분석 결과가 없습니다</p>
-              <p className="mt-1 text-xs text-gray-400">매물 검색 또는 매물 분석 탭에서 분석을 시작하세요</p>
+              <p className="mt-1 text-xs text-gray-400">매물 분석 탭에서 분석을 시작하세요</p>
               <button
                 onClick={() => setTab("input")}
                 className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
@@ -250,7 +219,7 @@ export default function HomePage() {
       {tab === "compare" && (
         <ComparisonView
           reports={getReports()}
-          onClose={() => setTab("search")}
+          onClose={() => setTab("input")}
           onRemove={handleRemove}
           onView={(r) => {
             setReport(r);

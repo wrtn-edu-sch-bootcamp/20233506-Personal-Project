@@ -11,45 +11,57 @@ from app.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
-COMBINED_PROMPT = """당신은 부동산 매물 텍스트 분석 전문가입니다.
+COMBINED_PROMPT = """당신은 한국 부동산 매물 텍스트를 분석하는 전문가입니다.
 매물 설명에서 (1) 허위·과장 표현 탐지와 (2) 핵심 정보 추출을 동시에 수행하세요.
 
-## 허위·과장 탐지 카테고리
-- EXAGGERATION: 과장 표현 (예: "초역세권", "풀옵션", "최고급", "황금")
-- MISLEADING: 오해 유발 (예: "리모델링 완료" 실제 일부만, "신축급")
-- PRICE_BAIT: 미끼 가격 (비정상적 저가로 유인)
-- OMISSION: 중요 정보 누락 의심 (반지하/북향/도로변 등 미기재, 확인 필요 사항)
-- NORMAL: 정상 서술
+## 입력 텍스트 판단
+- 먼저 입력이 **부동산 매물 설명**인지 판단하세요.
+- 매물 설명이 아닌 텍스트(테스트 문자, 인사말, 관계없는 내용)인 경우:
+  text_risk_level을 "not_listing"으로 설정하고, expressions는 빈 배열로 두세요.
 
-## 심각도
-- HIGH: 사기 의심, 허위 가능성 높음
-- MEDIUM: 과장·오해 소지, 확인 필요
-- LOW: 경미한 과장이나 관행적 표현
+## 업계 관용 표현 (LOW 또는 무시)
+다음은 한국 부동산 업계에서 **일반적으로 사용하는 관행적 표현**입니다.
+이 표현들은 과장이 아니라 업계 표준 용어이므로 LOW로 분류하거나 무시하세요:
+- 위치: "역세권", "초역세권", "더블역세권", "학세권", "숲세권", "역 도보 N분"
+- 상태: "풀옵션", "올수리", "올리모델링", "신축급", "즉시입주", "깔끔", "탁트인 뷰"
+- 일반 홍보: "급매", "실입주", "전망 좋은", "채광 좋은", "남향", "로열층"
+
+## 실질적 위험 표현 (MEDIUM ~ HIGH)
+다음에 해당할 때만 MEDIUM 이상으로 분류하세요:
+- **PRICE_BAIT** (HIGH): 해당 지역 시세 대비 비현실적으로 낮은 가격 언급, "급전 필요" 등 급매 압박
+- **MISLEADING** (MEDIUM~HIGH): 검증 불가능한 수익률 제시, "확정 수익", "무조건 오른다" 등
+- **OMISSION** (MEDIUM): 반지하/옥탑/북향/도로변/소음 등 중요 단점을 의도적으로 누락한 징후
+- **EXAGGERATION** (LOW~MEDIUM): 객관적 근거 없는 "최고급", "최상위", "유일무이" 등 극단적 수식어
+- **NORMAL**: 사실에 기반한 정상적 서술
+
+## 긍정적 요소
+신뢰도를 높이는 긍정적 표현도 expressions에 포함하세요 (severity: "LOW", category: "NORMAL"):
+- 구체적인 옵션/시설 명시, 정확한 면적/층수 기재, 관리비 상세 안내, 실사진 언급 등
+
+## 심각도 기준
+- **HIGH**: 사기 의심 또는 명백한 허위 (가격 조작, 존재하지 않는 시설 주장 등)
+- **MEDIUM**: 오해 유발 가능, 현장 확인 권장 (애매한 표현, 과장된 수익 주장 등)
+- **LOW**: 업계 관행적 표현이거나 경미한 과장 / 긍정적 신뢰 요소
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {
   "expressions": [
     {
       "text": "원문 중 해당 표현",
-      "category": "카테고리",
-      "severity": "심각도",
-      "reason": "왜 이 표현이 의심스러운지 구체적 설명"
+      "category": "EXAGGERATION | MISLEADING | PRICE_BAIT | OMISSION | NORMAL",
+      "severity": "HIGH | MEDIUM | LOW",
+      "reason": "판단 근거를 구체적으로 설명"
     }
   ],
-  "text_risk_level": "normal | exaggeration | suspicious",
+  "text_risk_level": "normal | exaggeration | suspicious | not_listing",
   "extracted_info": {
     "price": "가격 정보 (예: '전세 3억', '월세 50/500') 또는 null",
     "area": "면적 정보 (예: '59㎡ (약 18평)') 또는 null",
     "floor": "층수 정보 (예: '5층/15층') 또는 null",
-    "location_claims": ["위치 관련 주장 (역세권, 학교 근처 등)"],
-    "facilities": ["시설/옵션 (에어컨, 세탁기, 풀옵션 등)"]
+    "location_claims": ["위치 관련 주장"],
+    "facilities": ["시설/옵션 목록"]
   }
-}
-
-주의사항:
-- 짧은 텍스트라도 반드시 분석하세요. 정보가 너무 적으면 OMISSION으로 지적하세요.
-- 매물 설명으로 보이지 않는 텍스트(예: 테스트, 인사말)도 그 자체로 "매물 정보 미기재"로 분석하세요.
-- expressions가 없으면 빈 배열 []로 두되, 최소한 전체적 인상에 대한 1개 이상의 분석을 포함하세요."""
+}"""
 
 
 class TextAnalyzer:

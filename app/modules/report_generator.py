@@ -413,9 +413,12 @@ class ReportGenerator:
         if comparison.deviation_rate is None:
             return 70
         abs_dev = abs(comparison.deviation_rate)
-        if abs_dev <= 10:
+        if abs_dev <= 5:
             return 100
-        elif abs_dev <= 20:
-            return 70
-        else:
-            return 40
+        if abs_dev <= 10:
+            return 90
+        if abs_dev <= 15:
+            return 75
+        if abs_dev <= 25:
+            return 55
+        return 30

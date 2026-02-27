@@ -10,26 +10,34 @@ from app.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
-SCRAPE_PROMPT = """부동산 매물 웹페이지에서 정보를 추출하여 JSON으로 반환하세요.
+SCRAPE_PROMPT = """한국 부동산 매물 웹페이지에서 정보를 추출하여 JSON으로 반환하세요.
 
-중요 규칙:
-- "address"는 반드시 실제 도로명 또는 지번 주소여야 합니다 (예: "서울시 강남구 삼성로 212", "서울 마포구 성산동 123-4").
-- "역세권", "초등학교 근처" 같은 매물 홍보 문구는 절대 address에 넣지 마세요.
-- 주소를 찾을 수 없으면 address를 빈 문자열("")로 두세요. 절대 추측하지 마세요.
-- "listing_text"에는 매물 설명, 특징, 주변환경 등 모든 서술 텍스트를 넣으세요.
-- 텍스트에 없는 정보는 빈 문자열 또는 null로 두세요.
+## 핵심 규칙
+1. **address**: 반드시 실제 도로명/지번 주소만 (예: "서울시 강남구 삼성로 212").
+   - "역세권", "초역세권", "학세권" 같은 홍보 문구는 address가 아닙니다.
+   - 주소를 찾을 수 없으면 빈 문자열("")로 두세요.
+2. **building_name**: 아파트명, 건물명, 단지명 (예: "래미안아파트", "힐스테이트").
+3. **deposit**: 보증금 또는 매매가를 **만원 단위 숫자**로 변환하세요.
+   - "3억" → 30000, "3억5000" → 35000, "2억5000만원" → 25000, "5000만원" → 5000
+   - "63억6300" → 636300
+4. **monthly_rent**: 월세를 만원 단위 숫자로 (없으면 null).
+   - "50만원" → 50, "1000/50" 에서 뒤의 50이 월세
+5. **area_sqm**: 전용면적 ㎡ 숫자만 (없으면 null).
+6. **listing_type**: "전세", "월세", "매매" 중 하나만.
+7. **listing_text**: 매물 설명, 특징, 주변환경 등 서술 텍스트 전체.
+8. 텍스트에 없는 정보는 빈 문자열("") 또는 null.
 
-JSON 형식:
+## JSON 형식
 {
-  "address": "도로명 또는 지번 주소 (없으면 빈 문자열)",
-  "building_name": "건물/단지명",
-  "deposit": 보증금(만원, 숫자만, 없으면 null),
-  "monthly_rent": 월세(만원, 숫자만, 없으면 null),
-  "area_sqm": 전용면적(㎡, 숫자만, 없으면 null),
-  "floor": "층수 정보",
-  "listing_text": "매물 설명 전체",
-  "listing_type": "전세 또는 월세 또는 매매",
-  "property_type": "아파트 또는 연립다세대 또는 단독다가구 또는 오피스텔"
+  "address": "string",
+  "building_name": "string",
+  "deposit": number | null,
+  "monthly_rent": number | null,
+  "area_sqm": number | null,
+  "floor": "string",
+  "listing_text": "string",
+  "listing_type": "전세 | 월세 | 매매 | ''",
+  "property_type": "아파트 | 연립다세대 | 단독다가구 | 오피스텔 | ''"
 }
 """
 
@@ -98,6 +106,26 @@ def _extract_zigbang_ids(url: str) -> dict[str, str]:
     if m:
         ids["danji_id"] = m.group(1)
     return ids
+
+
+def _parse_korean_price(text: str) -> int | None:
+    """Parse Korean price text into 만원 units: '3억5000' → 35000, '5000만원' → 5000."""
+    m = re.search(r"(\d+)\s*억\s*(\d+)?", text)
+    if m:
+        eok = int(m.group(1))
+        remain = int(m.group(2)) if m.group(2) else 0
+        return eok * 10000 + remain
+
+    m = re.search(r"(\d[\d,]+)\s*만\s*원?", text)
+    if m:
+        return int(m.group(1).replace(",", ""))
+
+    m = re.search(r"(\d[\d,]+)", text)
+    if m:
+        val = int(m.group(1).replace(",", ""))
+        if val > 0:
+            return val
+    return None
 
 
 def _safe_int(val: Any) -> int | None:
@@ -198,11 +226,34 @@ class ListingScraper:
             if source == "다방":
                 return await self._scrape_dabang(url)
             return await self._scrape_generic(url, source)
+        except httpx.TimeoutException:
+            logger.warning("Scrape timed out for %s: %s", source, url)
+            return ScrapeListingResponse(
+                source=source,
+                listing_text=(
+                    f"{source} 매물 페이지 접속 시간이 초과되었습니다.\n\n"
+                    "서버 응답이 느리거나 접속이 제한되었을 수 있습니다.\n"
+                    "잠시 후 다시 시도하거나, 매물 정보를 직접 입력해주세요."
+                ),
+            )
+        except httpx.ConnectError:
+            logger.warning("Scrape connection failed for %s: %s", source, url)
+            return ScrapeListingResponse(
+                source=source,
+                listing_text=(
+                    f"{source} 매물 페이지에 연결할 수 없습니다.\n\n"
+                    "URL이 올바른지 확인하시거나, 매물 정보를 직접 입력해주세요."
+                ),
+            )
         except Exception as e:
             logger.warning("Scrape failed for %s: %s", source, e)
             return ScrapeListingResponse(
                 source=source,
-                listing_text=f"매물 정보를 가져오지 못했습니다: {e}",
+                listing_text=(
+                    f"{source}에서 매물 정보를 가져오지 못했습니다.\n\n"
+                    f"오류: {type(e).__name__}\n"
+                    "매물 페이지의 정보를 직접 입력해주세요."
+                ),
             )
 
     # ── 네이버부동산 ──
@@ -245,44 +296,34 @@ class ListingScraper:
             params = {"articleId": article_id} if "front-api" in base_url else {}
             headers = {**API_HEADERS, "Referer": referer}
 
-            for attempt in range(2):
-                try:
-                    async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
-                        resp = await client.get(url, params=params, headers=headers)
+            try:
+                async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
+                    resp = await client.get(url, params=params, headers=headers)
 
-                    if resp.status_code == 404:
-                        logger.info("Naver article %s: 404", article_id)
-                        return None
+                if resp.status_code in (404, 410):
+                    return None
+                if resp.status_code in (429, 403):
+                    continue
 
-                    if resp.status_code == 429:
-                        if attempt == 0:
-                            await asyncio.sleep(2)
-                            continue
-                        logger.info("Naver rate limited persistently")
-                        break
+                if resp.status_code != 200:
+                    continue
 
-                    if resp.status_code != 200:
-                        break
+                data = resp.json()
+                if isinstance(data, dict) and (
+                    data.get("detailCode") == "TOO_MANY_REQUESTS"
+                    or data.get("code") == "TOO_MANY_REQUESTS"
+                ):
+                    continue
 
-                    data = resp.json()
-                    if isinstance(data, dict) and (
-                        data.get("detailCode") == "TOO_MANY_REQUESTS"
-                        or data.get("code") == "TOO_MANY_REQUESTS"
-                    ):
-                        if attempt == 0:
-                            await asyncio.sleep(2)
-                            continue
-                        break
+                result = data.get("result", data) if isinstance(data, dict) else data
+                if not isinstance(result, dict):
+                    continue
 
-                    result = data.get("result", data) if isinstance(data, dict) else data
-                    if not isinstance(result, dict):
-                        break
+                return self._parse_naver_data(result, article_id)
 
-                    return self._parse_naver_data(result, article_id)
-
-                except Exception as e:
-                    logger.debug("Naver API attempt failed: %s", e)
-                    break
+            except Exception as e:
+                logger.debug("Naver API attempt failed: %s", e)
+                continue
 
         return None
 
@@ -319,22 +360,27 @@ class ListingScraper:
             listing_type = _guess_listing_type(full_text)
             property_type = _guess_property_type(full_text)
 
-            deposit = None
-            price_match = re.search(r"(\d[\d,]+)\s*만원", title + " " + meta.get("description", ""))
-            if price_match:
-                deposit = _safe_int(price_match.group(1).replace(",", ""))
+            price_text = title + " " + meta.get("description", "")
+            deposit = _parse_korean_price(price_text)
 
             area = None
             area_match = re.search(r"([\d.]+)\s*㎡", full_text)
             if area_match:
                 area = _safe_float(area_match.group(1))
 
+            monthly_rent = None
+            rent_match = re.search(r"월세[^\d]*(\d[\d,]*)\s*/\s*(\d[\d,]*)", full_text)
+            if rent_match:
+                deposit = _safe_int(rent_match.group(1).replace(",", ""))
+                monthly_rent = _safe_int(rent_match.group(2).replace(",", ""))
+
             raw_address = meta.get("description", "")
             address = raw_address if _looks_like_address(raw_address) else ""
 
             raw_building = title.split(" ")[0] if title else ""
             building_name = ""
-            if raw_building and raw_building not in ("네이버", "부동산", "매물"):
+            skip_names = {"네이버", "부동산", "매물", "네이버페이", "네이버부동산"}
+            if raw_building and raw_building not in skip_names:
                 building_name = raw_building
 
             if not address and not building_name and not deposit:
@@ -344,6 +390,7 @@ class ListingScraper:
                 address=address,
                 building_name=building_name,
                 deposit=deposit,
+                monthly_rent=monthly_rent,
                 area_sqm=area,
                 listing_text=meta.get("meta_description", title),
                 listing_type=listing_type,
@@ -462,7 +509,7 @@ class ListingScraper:
     async def _resolve_zigbang_redirect(self, url: str) -> tuple[str, str]:
         """Follow redirect chain from zigba.ng short URL and return (final_url, html)."""
         try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
                 resp = await client.get(url, headers=BROWSER_HEADERS)
                 return str(resp.url), resp.text if resp.status_code == 200 else ""
         except Exception as e:
@@ -575,7 +622,7 @@ class ListingScraper:
 
     async def _try_zigbang_api_v2(self, item_id: str) -> ScrapeListingResponse | None:
         try:
-            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
                 resp = await client.get(
                     f"https://apis.zigbang.com/v2/items/{item_id}",
                     headers=API_HEADERS,
@@ -593,7 +640,7 @@ class ListingScraper:
 
     async def _try_zigbang_api_v3_list(self, item_id: str) -> ScrapeListingResponse | None:
         try:
-            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
                 resp = await client.get(
                     f"https://apis.zigbang.com/v3/items?item_ids=[{item_id}]",
                     headers=API_HEADERS,
@@ -746,6 +793,7 @@ class ListingScraper:
 
     def _parse_dabang_og(self, meta: dict[str, str], final_url: str) -> ScrapeListingResponse:
         og_title = meta.get("og_title", "") or meta.get("title", "")
+        og_desc = meta.get("description", "") or meta.get("meta_description", "")
 
         # Format: "[다방] 서울특별시 강남구 논현동, 아파트 매매 63억6300"
         cleaned = re.sub(r"^\[다방\]\s*", "", og_title)
@@ -754,8 +802,8 @@ class ListingScraper:
         listing_type = ""
         property_type = ""
         deposit = None
+        building_name = ""
 
-        # Split by comma: "서울특별시 강남구 논현동" + "아파트 매매 63억6300"
         parts = cleaned.split(",", 1)
         if len(parts) >= 1:
             address = parts[0].strip()
@@ -768,29 +816,51 @@ class ListingScraper:
             if listing_type == "월세":
                 monthly_rent = self._parse_dabang_monthly(detail)
 
-        # Extract room_id from URL for building name lookup
-        room_id_m = re.search(r"detail_id=([a-f0-9]+)", final_url)
-        if not room_id_m:
-            room_id_m = re.search(r"/room/([a-f0-9]+)", final_url)
-        if not room_id_m:
-            room_id_m = re.search(r"/room/([a-f0-9]+)", meta.get("url", ""))
+        building_m = re.search(
+            r"(?:아파트|오피스텔|빌라|연립)\s+(.+?)(?:\s+전세|\s+월세|\s+매매|\s+\d|$)",
+            cleaned,
+        )
+        if building_m:
+            building_name = building_m.group(1).strip()
+        if not building_name and og_desc:
+            bldg_m = re.search(r"건물명[:\s]*([^\s,]+)", og_desc)
+            if bldg_m:
+                building_name = bldg_m.group(1)
 
         area = None
-        area_m = re.search(r"([\d.]+)\s*㎡", og_title)
+        combined_text = og_title + " " + og_desc
+        area_m = re.search(r"([\d.]+)\s*㎡", combined_text)
         if area_m:
             area = _safe_float(area_m.group(1))
+        if not area:
+            area_py = re.search(r"([\d.]+)\s*평", combined_text)
+            if area_py:
+                area = _safe_float(area_py.group(1))
+                if area:
+                    area = round(area * 3.3058, 2)
+
+        floor_info = ""
+        floor_m = re.search(r"(\d+)\s*[/／]\s*(\d+)\s*층", combined_text)
+        if floor_m:
+            floor_info = f"{floor_m.group(1)}/{floor_m.group(2)}층"
+        elif (floor_m := re.search(r"(\d+)\s*층", combined_text)):
+            floor_info = f"{floor_m.group(1)}층"
 
         src_lat = _safe_float(meta.get("_lat"))
         src_lng = _safe_float(meta.get("_lng"))
 
+        listing_text = cleaned if cleaned != address else ""
+        if og_desc and og_desc not in listing_text:
+            listing_text = (listing_text + "\n" + og_desc).strip()
+
         return ScrapeListingResponse(
             address=address,
-            building_name="",
+            building_name=building_name,
             deposit=int(deposit) if deposit else None,
             monthly_rent=int(monthly_rent) if monthly_rent else None,
             area_sqm=area,
-            floor="",
-            listing_text=cleaned if cleaned != address else "",
+            floor=floor_info,
+            listing_text=listing_text,
             listing_type=listing_type or "매매",
             property_type=property_type or "아파트",
             source="다방",
@@ -800,23 +870,16 @@ class ListingScraper:
 
     @staticmethod
     def _parse_dabang_price(text: str) -> int | None:
-        """Parse Korean price format like '63억6300', '3억', '5000' from Dabang title."""
-        m = re.search(r"(\d+)억\s*(\d+)?", text)
-        if m:
-            eok = int(m.group(1))
-            remain = int(m.group(2)) if m.group(2) else 0
-            return eok * 10000 + remain
+        """Parse Korean price format: '63억6300', '3억', '5000만원', '1000/50'."""
+        slash = re.search(r"(\d[\d,]*)\s*/\s*(\d[\d,]*)", text)
+        if slash:
+            return _parse_korean_price(slash.group(1))
 
-        m = re.search(r"(\d[\d,]+)\s*(?:만원|만)?(?:\s*/\s*(\d[\d,]+))?", text)
-        if m:
-            val = int(m.group(1).replace(",", ""))
-            return val
-
-        return None
+        return _parse_korean_price(text)
 
     @staticmethod
     def _parse_dabang_monthly(text: str) -> int | None:
-        """Parse monthly rent from format like '1000/50' or text containing 월세."""
+        """Parse monthly rent from format like '1000/50'."""
         m = re.search(r"(\d[\d,]+)\s*/\s*(\d[\d,]+)", text)
         if m:
             return int(m.group(2).replace(",", ""))

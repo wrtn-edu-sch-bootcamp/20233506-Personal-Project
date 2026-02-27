@@ -3,7 +3,11 @@ export type PropertyType = "아파트" | "연립다세대" | "단독다가구" |
 export type SuspiciousCategory = "EXAGGERATION" | "MISLEADING" | "PRICE_BAIT" | "OMISSION" | "NORMAL";
 export type Severity = "LOW" | "MEDIUM" | "HIGH";
 export type RiskGrade = "안전" | "주의" | "경고" | "위험";
-export type PriceAssessment = "적정" | "저가의심" | "고가의심";
+export type PriceAssessment =
+  | "매우적정" | "적정"
+  | "약간고가" | "약간저가"
+  | "고가의심" | "저가의심"
+  | "과대의심" | "과소의심";
 
 export interface RegistryInput {
   owner?: string | null;
@@ -66,6 +70,10 @@ export interface MarketComparison {
   data_scope: string;
   recent_trades: RecentTrade[];
   monthly_trends: MonthlyTrend[];
+  price_trend: string;
+  jeonse_rate_market: number | null;
+  jeonse_rate_risk: string;
+  data_source: string;
 }
 
 export interface RegistryAnalysis {

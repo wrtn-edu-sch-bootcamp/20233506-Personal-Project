@@ -7,4 +7,3 @@ pydantic-settings>=2.6.0
 httpx>=0.28.0
 python-multipart>=0.0.9
 python-dateutil>=2.9.0
-geohash2>=1.1

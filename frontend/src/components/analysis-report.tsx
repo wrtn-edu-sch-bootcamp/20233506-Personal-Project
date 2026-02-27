@@ -18,10 +18,15 @@ const CATEGORY_LABEL: Record<string, string> = {
   NORMAL: "정상",
 };
 
-const ASSESSMENT_STYLE: Record<string, { icon: string; color: string }> = {
-  "적정": { icon: "✅", color: "text-emerald-600" },
-  "저가의심": { icon: "⚠️", color: "text-orange-600" },
-  "고가의심": { icon: "📈", color: "text-yellow-600" },
+const ASSESSMENT_STYLE: Record<string, { icon: string; color: string; label: string }> = {
+  "매우적정": { icon: "✅", color: "text-emerald-600", label: "매우 적정 (±5% 이내)" },
+  "적정": { icon: "✅", color: "text-emerald-500", label: "적정 (±10% 이내)" },
+  "약간고가": { icon: "📈", color: "text-yellow-600", label: "약간 고가 (확인 권장)" },
+  "약간저가": { icon: "📉", color: "text-yellow-600", label: "약간 저가 (확인 권장)" },
+  "고가의심": { icon: "⚠️", color: "text-orange-600", label: "고가 의심 (주의 필요)" },
+  "저가의심": { icon: "⚠️", color: "text-orange-600", label: "저가 의심 (주의 필요)" },
+  "과대의심": { icon: "🚨", color: "text-red-600", label: "과대 의심 (사기 가능성)" },
+  "과소의심": { icon: "🚨", color: "text-red-600", label: "과소 의심 (사기 가능성)" },
 };
 
 function fmtPrice(manwon: number): string {
@@ -212,7 +217,7 @@ export default function AnalysisReport({ report, areaSqm = 0 }: { report: Report
         <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-gray-900">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-100 text-sm">💰</span>
           시세 교차 검증
-          <Tip text="입력한 매물의 가격을 국토교통부 실거래가 데이터와 비교하여, 적정 가격인지 판단합니다. 편차가 ±10% 이내면 적정, ±20% 초과면 주의가 필요합니다." />
+          <Tip text="입력한 매물의 가격을 국토교통부 실거래가 데이터와 비교합니다. KB부동산 시세 기준: ±5% 매우 적정, ±10% 적정, ±15% 확인 권장, ±25% 주의 필요, ±25% 초과 사기 가능성." />
         </h2>
         {report.market_comparison.avg_market_price ? (
           <div className="space-y-3">
@@ -253,9 +258,39 @@ export default function AnalysisReport({ report, areaSqm = 0 }: { report: Report
             {report.market_comparison.assessment && (
               <p className={`text-sm font-medium ${ASSESSMENT_STYLE[report.market_comparison.assessment]?.color ?? ""}`}>
                 {ASSESSMENT_STYLE[report.market_comparison.assessment]?.icon}{" "}
-                판정: {report.market_comparison.assessment}
+                판정: {ASSESSMENT_STYLE[report.market_comparison.assessment]?.label ?? report.market_comparison.assessment}
               </p>
             )}
+            {/* 추가 지표: 시세 추이, 전세가율, 출처 */}
+            <div className="mt-3 space-y-1.5 rounded-lg bg-gray-50 p-3">
+              {report.market_comparison.price_trend && report.market_comparison.price_trend !== "알수없음" && (
+                <p className="text-xs text-gray-600">
+                  📊 최근 시세 추이: <span className="font-semibold">{report.market_comparison.price_trend}</span>
+                  <span className="text-gray-400"> (최근 3개월 vs 12개월 평균 비교)</span>
+                </p>
+              )}
+              {report.market_comparison.jeonse_rate_market != null && (
+                <p className="text-xs text-gray-600">
+                  🏠 시장 전세가율: <span className="font-semibold">{report.market_comparison.jeonse_rate_market}%</span>
+                  {report.market_comparison.jeonse_rate_risk && (
+                    <span className={`ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                      report.market_comparison.jeonse_rate_risk === "안전" ? "bg-emerald-50 text-emerald-700"
+                        : report.market_comparison.jeonse_rate_risk === "보통" ? "bg-blue-50 text-blue-700"
+                        : report.market_comparison.jeonse_rate_risk === "주의" ? "bg-yellow-50 text-yellow-700"
+                        : "bg-red-50 text-red-700"
+                    }`}>
+                      {report.market_comparison.jeonse_rate_risk}
+                    </span>
+                  )}
+                  <span className="text-gray-400"> (국토연구원 기준: 60% 이하 안전, 80% 이상 위험)</span>
+                </p>
+              )}
+              {report.market_comparison.data_source && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  📋 {report.market_comparison.data_source}
+                </p>
+              )}
+            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-400">시세 데이터를 조회할 수 없습니다.</p>

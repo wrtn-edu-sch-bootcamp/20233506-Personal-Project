@@ -39,9 +39,21 @@ class RiskGrade(str, Enum):
 
 
 class PriceAssessment(str, Enum):
+    VERY_FAIR = "매우적정"
     FAIR = "적정"
-    UNDERPRICED = "저가의심"
+    SLIGHTLY_HIGH = "약간고가"
+    SLIGHTLY_LOW = "약간저가"
     OVERPRICED = "고가의심"
+    UNDERPRICED = "저가의심"
+    SIGNIFICANTLY_HIGH = "과대의심"
+    SIGNIFICANTLY_LOW = "과소의심"
+
+
+class PriceTrend(str, Enum):
+    RISING = "상승"
+    STABLE = "안정"
+    FALLING = "하락"
+    UNKNOWN = "알수없음"
 
 
 # ── Request Models ──
@@ -132,6 +144,10 @@ class MarketComparison(BaseModel):
     data_scope: str = Field("", description="데이터 범위 (같은 건물 / 같은 동 / 시군구 전체)")
     recent_trades: list[RecentTrade] = []
     monthly_trends: list[MonthlyTrend] = []
+    price_trend: str = Field("", description="최근 시세 추이 (상승/안정/하락)")
+    jeonse_rate_market: float | None = Field(None, description="시장 전세가율 (전세가÷매매가×100)")
+    jeonse_rate_risk: str = Field("", description="전세가율 위험도 (안전/주의/위험)")
+    data_source: str = Field("", description="시세 판단 근거 출처")
 
 
 class RegistryAnalysis(BaseModel):
